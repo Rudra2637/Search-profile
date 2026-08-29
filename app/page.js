@@ -83,6 +83,12 @@ export default function HomePage() {
     setTimeout(() => setCopiedCurl(false), 2000);
   };
 
+  // Proxy LinkedIn images through our server-side route to bypass CDN hotlink protection
+  const proxyImg = (url) => {
+    if (!url) return null;
+    return `/api/image?url=${encodeURIComponent(url)}`;
+  };
+
   const profile = result?.data?.profile;
   const experience = result?.data?.experience || [];
   const education = result?.data?.education || [];
@@ -291,9 +297,8 @@ export default function HomePage() {
                   <div className="h-28 bg-gradient-to-r from-blue-900/60 via-indigo-900/50 to-slate-900 border-b border-slate-800 relative">
                     {profile?.backgroundImage && (
                       <img
-                        src={profile.backgroundImage}
+                        src={proxyImg(profile.backgroundImage)}
                         alt="Profile Banner"
-                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover opacity-40"
                       />
                     )}
@@ -306,9 +311,8 @@ export default function HomePage() {
                       <div className="relative">
                         {profile?.profilePicture ? (
                           <img
-                            src={profile.profilePicture}
+                            src={proxyImg(profile.profilePicture)}
                             alt={profile.fullName || "Profile"}
-                            referrerPolicy="no-referrer"
                             className="w-24 h-24 rounded-full border-4 border-slate-900 object-cover bg-slate-800 shadow-xl"
                           />
                         ) : (
