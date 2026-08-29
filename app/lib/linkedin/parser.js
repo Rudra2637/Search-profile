@@ -25,30 +25,28 @@ export function extractVanityName(input) {
 
   let cleaned = input.trim();
 
-  // If it looks like a URL, parse out the /in/{vanityName} segment
-  if (cleaned.includes("linkedin.com") || cleaned.includes("/in/")) {
-    // Handle cases where protocol is missing
+  // If input contains /in/ (e.g. linkedin.com/in/username, https://.../in/username, in/username)
+  if (cleaned.includes("/in/") || cleaned.startsWith("in/")) {
+    const match = cleaned.match(/(?:^|\/|\.)in\/([a-zA-Z0-9\-_]+)/i);
+    if (match && match[1]) {
+      return validateVanity(match[1]);
+    }
+  }
+
+  // If it's a full URL without /in/ (e.g. https://www.linkedin.com/satyanadella)
+  if (cleaned.includes("linkedin.com")) {
     if (!cleaned.startsWith("http")) {
       cleaned = "https://" + cleaned;
     }
-
     try {
       const url = new URL(cleaned);
-      const pathParts = url.pathname.split("/").filter(Boolean);
-
-      // Expect: ["in", "vanityName"] or ["in", "vanityName", ...]
-      const inIndex = pathParts.indexOf("in");
-      if (inIndex === -1 || inIndex + 1 >= pathParts.length) {
-        return {
-          error:
-            'Invalid LinkedIn URL format. Expected: linkedin.com/in/{username}',
-        };
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length > 0) {
+        const candidate = parts[parts.length - 1];
+        return validateVanity(candidate);
       }
-
-      const vanity = pathParts[inIndex + 1];
-      return validateVanity(vanity);
     } catch {
-      return { error: "Could not parse the provided URL." };
+      // Fall through to raw validation
     }
   }
 
