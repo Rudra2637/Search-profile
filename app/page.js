@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   Check,
@@ -35,6 +35,11 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState("preview"); // 'preview' | 'json'
   const [copied, setCopied] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
+  const [origin, setOrigin] = useState("");
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   const fetchProfile = async (target = inputUrl) => {
     if (!target.trim()) return;
@@ -288,6 +293,7 @@ export default function HomePage() {
                       <img
                         src={profile.backgroundImage}
                         alt="Profile Banner"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover opacity-40"
                       />
                     )}
@@ -302,6 +308,7 @@ export default function HomePage() {
                           <img
                             src={profile.profilePicture}
                             alt={profile.fullName || "Profile"}
+                            referrerPolicy="no-referrer"
                             className="w-24 h-24 rounded-full border-4 border-slate-900 object-cover bg-slate-800 shadow-xl"
                           />
                         ) : (
@@ -598,7 +605,7 @@ export default function HomePage() {
 
           <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 flex items-center justify-between font-mono text-xs text-slate-300 overflow-x-auto">
             <code>
-              curl &quot;{typeof window !== "undefined" ? window.location.origin : "https://your-domain.vercel.app"}/api/profile?url=https://www.linkedin.com/in/{inputUrl || "satyanadella"}&quot;
+              curl &quot;{origin}/api/profile?url=https://www.linkedin.com/in/{inputUrl || "satyanadella"}&quot;
             </code>
           </div>
         </section>
