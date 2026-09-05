@@ -114,17 +114,56 @@ function extractDateRange(dateRange) {
  * Normalize a LinkedIn Voyager API response into a clean profile object.
  *
  * @param {Array} included - The `included` array from the Voyager API response.
+ * @param {string} [targetVanity] - Optional vanity name to match the target profile.
+ * @param {object} [rootData] - Optional root data object containing root URN pointers.
  * @returns {object} A structured profile object.
  */
-export function normalizeProfile(included) {
+export function normalizeProfile(included, targetVanity = null, rootData = null) {
   const groups = groupByType(included);
   const urnMap = buildUrnMap(included);
 
-  // ── Profile (basic info) ──
-  const profileEntity = groups[TYPES.PROFILE]?.[0];
-  if (!profileEntity) {
+  const profileList = groups[TYPES.PROFILE] || [];
+  if (profileList.length === 0) {
     throw new Error("No Profile entity found in LinkedIn response.");
   }
+
+  // 1. Identify the target profile entity:
+  //    a. Match by root URN pointer in rootData
+  //    b. Match by vanity name (publicIdentifier)
+  //    c. Fallback to first profile entity
+  let profileEntity = null;
+
+  const rootUrn =
+    rootData?.["*elements"]?.[0] ||
+    (typeof rootData?.entityUrn === "string" ? rootData.entityUrn : null);
+
+  if (rootUrn && urnMap[rootUrn]) {
+    profileEntity = urnMap[rootUrn];
+  } else if (targetVanity) {
+    const cleanVanity = targetVanity.toLowerCase().trim();
+    profileEntity = profileList.find(
+      (p) => p.publicIdentifier && p.publicIdentifier.toLowerCase() === cleanVanity
+    );
+  }
+
+  if (!profileEntity) {
+    profileEntity = profileList[0];
+  }
+
+  // Extract member URN ID for scoping member-specific entities (positions, educations, etc.)
+  const memberUrn = profileEntity.entityUrn || "";
+  const memberIdMatch = memberUrn.match(/urn:li:fsd_profile:([^,)]+)/);
+  const memberId = memberIdMatch ? memberIdMatch[1] : null;
+
+  const belongsToTarget = (entity) => {
+    if (!memberId) return true;
+    const urn = entity.entityUrn || "";
+    // If the entity's URN references a specific profile, ensure it matches our target member
+    if (urn.includes("urn:li:fsd_profile:") || urn.includes("urn:li:fsd_profilePosition:") || urn.includes("urn:li:fsd_profileEducation:")) {
+      return urn.includes(memberId);
+    }
+    return true;
+  };
 
   // Resolve location from Geo entity via geoLocation.*geo URN
   let locationName = null;
@@ -152,28 +191,30 @@ export function normalizeProfile(included) {
   };
 
   // ── Experience (Positions) ──
-  const positions = (groups[TYPES.POSITION] || []).map((pos) => {
-    // Resolve company logo
-    const companyUrn = pos.companyUrn;
-    const companyEntity = companyUrn ? urnMap[companyUrn] : null;
+  const positions = (groups[TYPES.POSITION] || [])
+    .filter(belongsToTarget)
+    .map((pos) => {
+      // Resolve company logo
+      const companyUrn = pos.companyUrn;
+      const companyEntity = companyUrn ? urnMap[companyUrn] : null;
 
-    return {
-      title: pos.title || null,
-      companyName: pos.companyName || null,
-      companyLinkedInUrl: companyEntity?.universalName
-        ? `https://www.linkedin.com/company/${companyEntity.universalName}`
-        : null,
-      companyLogo: companyEntity?.logo
-        ? extractImageUrl(companyEntity.logo)
-        : null,
-      location: pos.locationName || pos.geoLocationName || null,
-      description: pos.description || null,
-      ...extractDateRange(pos.dateRange),
-      isCurrent: pos.dateRange
-        ? !pos.dateRange.end
-        : false,
-    };
-  });
+      return {
+        title: pos.title || null,
+        companyName: pos.companyName || null,
+        companyLinkedInUrl: companyEntity?.universalName
+          ? `https://www.linkedin.com/company/${companyEntity.universalName}`
+          : null,
+        companyLogo: companyEntity?.logo
+          ? extractImageUrl(companyEntity.logo)
+          : null,
+        location: pos.locationName || pos.geoLocationName || null,
+        description: pos.description || null,
+        ...extractDateRange(pos.dateRange),
+        isCurrent: pos.dateRange
+          ? !pos.dateRange.end
+          : false,
+      };
+    });
 
   // Sort positions: current jobs first, then by start year descending
   positions.sort((a, b) => {
@@ -185,23 +226,25 @@ export function normalizeProfile(included) {
   });
 
   // ── Education ──
-  const education = (groups[TYPES.EDUCATION] || []).map((edu) => {
-    const schoolUrn = edu.schoolUrn;
-    const schoolEntity = schoolUrn ? urnMap[schoolUrn] : null;
+  const education = (groups[TYPES.EDUCATION] || [])
+    .filter(belongsToTarget)
+    .map((edu) => {
+      const schoolUrn = edu.schoolUrn;
+      const schoolEntity = schoolUrn ? urnMap[schoolUrn] : null;
 
-    return {
-      schoolName: edu.schoolName || null,
-      degreeName: edu.degreeName || null,
-      fieldOfStudy: edu.fieldOfStudy || null,
-      grade: edu.grade || null,
-      activities: edu.activities || null,
-      description: edu.description || null,
-      schoolLogo: schoolEntity?.logo
-        ? extractImageUrl(schoolEntity.logo)
-        : null,
-      ...extractDateRange(edu.dateRange),
-    };
-  });
+      return {
+        schoolName: edu.schoolName || null,
+        degreeName: edu.degreeName || null,
+        fieldOfStudy: edu.fieldOfStudy || null,
+        grade: edu.grade || null,
+        activities: edu.activities || null,
+        description: edu.description || null,
+        schoolLogo: schoolEntity?.logo
+          ? extractImageUrl(schoolEntity.logo)
+          : null,
+        ...extractDateRange(edu.dateRange),
+      };
+    });
 
   // Sort by start year descending
   education.sort((a, b) => {
@@ -211,49 +254,61 @@ export function normalizeProfile(included) {
   });
 
   // ── Skills ──
-  const skills = (groups[TYPES.SKILL] || []).map((skill) => ({
-    name: skill.name || null,
-  }));
+  const skills = (groups[TYPES.SKILL] || [])
+    .filter(belongsToTarget)
+    .map((skill) => ({
+      name: skill.name || null,
+    }));
 
   // ── Certifications ──
-  const certifications = (groups[TYPES.CERTIFICATION] || []).map((cert) => ({
-    name: cert.name || null,
-    authority: cert.authority || null,
-    licenseNumber: cert.licenseNumber || null,
-    url: cert.url || null,
-    ...extractDateRange(cert.dateRange),
-  }));
+  const certifications = (groups[TYPES.CERTIFICATION] || [])
+    .filter(belongsToTarget)
+    .map((cert) => ({
+      name: cert.name || null,
+      authority: cert.authority || null,
+      licenseNumber: cert.licenseNumber || null,
+      url: cert.url || null,
+      ...extractDateRange(cert.dateRange),
+    }));
 
   // ── Languages ──
-  const languages = (groups[TYPES.LANGUAGE] || []).map((lang) => ({
-    name: lang.name || null,
-    proficiency: lang.proficiency || null,
-  }));
+  const languages = (groups[TYPES.LANGUAGE] || [])
+    .filter(belongsToTarget)
+    .map((lang) => ({
+      name: lang.name || null,
+      proficiency: lang.proficiency || null,
+    }));
 
   // ── Honors & Awards ──
-  const honors = (groups[TYPES.HONOR] || []).map((honor) => ({
-    title: honor.title || null,
-    issuer: honor.issuer || null,
-    description: honor.description || null,
-    ...extractDateRange(honor.dateRange),
-  }));
+  const honors = (groups[TYPES.HONOR] || [])
+    .filter(belongsToTarget)
+    .map((honor) => ({
+      title: honor.title || null,
+      issuer: honor.issuer || null,
+      description: honor.description || null,
+      ...extractDateRange(honor.dateRange),
+    }));
 
   // ── Projects ──
-  const projects = (groups[TYPES.PROJECT] || []).map((proj) => ({
-    title: proj.title || null,
-    description: proj.description || null,
-    url: proj.url || null,
-    ...extractDateRange(proj.dateRange),
-  }));
+  const projects = (groups[TYPES.PROJECT] || [])
+    .filter(belongsToTarget)
+    .map((proj) => ({
+      title: proj.title || null,
+      description: proj.description || null,
+      url: proj.url || null,
+      ...extractDateRange(proj.dateRange),
+    }));
 
   // ── Volunteer Experience ──
-  const volunteerExperience = (groups[TYPES.VOLUNTEER] || []).map((vol) => ({
-    role: vol.role || null,
-    organizationName: vol.companyName || null,
-    cause: vol.cause || null,
-    description: vol.description || null,
-    ...extractDateRange(vol.dateRange),
-  }));
+  const volunteerExperience = (groups[TYPES.VOLUNTEER] || [])
+    .filter(belongsToTarget)
+    .map((vol) => ({
+      role: vol.role || null,
+      organizationName: vol.companyName || null,
+      cause: vol.cause || null,
+      description: vol.description || null,
+      ...extractDateRange(vol.dateRange),
+    }));
 
   return {
     profile,

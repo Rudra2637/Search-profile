@@ -82,7 +82,11 @@ async function handleProfileRequest(inputUrl) {
 
   // 4. Normalize entity graph into structured profile schema
   try {
-    const normalized = normalizeProfile(fetchResult.included);
+    const normalized = normalizeProfile(
+      fetchResult.included,
+      vanityName,
+      fetchResult.data
+    );
 
     // 5. Store in cache (1 hour TTL)
     setCachedProfile(vanityName, normalized);
